@@ -1,0 +1,211 @@
+<?php
+/**
+ *
+ * @author Ben Byford
+ * @url BenByford.com
+ *
+ **/
+
+class OneTimeOnlyCode extends WireData implements Module {
+
+	public static function getModuleInfo() {
+		return array(
+			'title' => "OneTimeOnlyCode",
+			'version' => "0.0.1",
+			'summary' => "OneTimeOnlyCode creates one time only codes that can be used to access specific content",
+			'author' => "Ben Byford",
+			'href' => "",
+			'icon' => "code",
+			'autoload' => true,
+			'singular' => true,
+			'requires' => "LazyCron"
+		);
+	}
+    
+    // table name
+    protected $tableName    = "otoc";
+    // code lengths
+    protected $codeLength   = 12;
+    // code chars to choose from
+    protected $characters   = '0123456789abcdefghijklmnopqrstuvwxyz';
+
+
+    /* 
+    * initialize the hook in your AutoLoad module
+    */ 
+	public function init() {
+
+		// add hooks to CRON
+	    $this->addHook("LazyCron::{$this->cron_check}", $this, 'checkElapsedCodesCron');
+	}
+
+    /* 
+    * check codes have elapsed
+    *
+    * used by lazy-cron hook
+    */ 
+    public function checkElapsedCodesCron(){
+
+        $elapsed = (int)$this->elapsedTime;
+
+        if($elapsed != 0){
+            
+            // get current timestamp
+            $time = time();
+
+            // delete from db where unix time plus elpased time is 
+            // less than current timestamp
+            $sql = "
+                DELETE FROM {$this->tableName}
+                WHERE (UNIX_TIMESTAMP(created) + {$elapsed}) < {$time}; 
+                ";
+            
+            // exec on the database
+            $pod = wire('database')->query($sql);
+        }
+    }
+    
+   /* 
+    * check code exists and delete
+    *
+    * @param @code string
+    * @param @url string
+    * @param @del optional bool - if false then the code isnt removed from the database
+    * @return bool
+    */ 
+    public function checkCode($code, $url, $del = true){
+
+        $time = time();
+
+		$sql = "
+            SELECT url 
+            FROM {$this->tableName}
+            WHERE code = '{$code}';
+			";
+		
+		// insert into database
+		$pod = wire('database')->query($sql);
+
+        // delete current otoc
+        if($del){ $this->deleteCode($code); }
+
+        // return date(DATE_ATOM);
+        $codeObject = $this->fetchData($pod);
+
+        // compare urls if data found 
+		return $codeObject[0]->url == $url;
+    }
+
+    /* 
+    * delete row in the database
+    *
+    * @param @code string to delete if exists
+    *
+    */ 
+	private function deleteCode($code){
+
+		// delete code
+		$sql = "
+			DELETE FROM {$this->tableName}
+			WHERE code='{$code}';
+			";
+		
+		// exec on the database
+		wire('database')->exec($sql);
+    }
+
+
+    /* 
+    * Creates n codes
+    *
+    * @param $url string
+    * @param $count int
+    * return array
+    *
+    * @TODO: consolidate the query
+    */  
+    public function createCodes($url = "/", $count = 1){
+
+		$codes = array();
+
+        // for the number requested create number of codes 
+        for ($i = 0; $i < $count; $i++) {
+            
+			$code = $this->createRandString($this->codeLength);
+			array_push($codes, $code);
+
+			// create new code
+			$sql = "
+				INSERT INTO {$this->tableName} (code, url)
+				VALUES ('{$code}', '{$url}');
+				";
+			
+			// insert into database
+			wire('database')->exec($sql);
+        }
+		return $codes;
+    }
+
+    /* 
+    * converts pdo into an array of data
+    *
+    * @param pdo query $pdo
+    * return array
+    */ 
+	private function fetchData($pdo){
+        $data = array();
+        while ($row = $pdo->fetch(PDO::FETCH_OBJ)) {
+            array_push($data,$row);
+        }
+        return $data;
+    }
+
+    /* 
+    * create random string of num/chararacters given a length
+    *
+    * @param $length int
+    * return string
+    */ 
+	private function createRandString($length = 10){
+		
+		$charactersLength = strlen($this->characters);
+		$randomString = '';
+		for ($i = 0; $i < $length; $i++) {
+			$randomString .= $this->characters[rand(0, $charactersLength - 1)];
+		}
+		return $randomString;
+	}
+
+
+    /*
+    * installs otoc table
+    */ 
+    public function ___install() {
+
+        // create table for otoc's
+        $sql = "CREATE TABLE IF NOT EXISTS `{$this->tableName}` (
+					`id` int unsigned NOT NULL AUTO_INCREMENT,
+					`code` varchar(255) NOT NULL, 
+                    `url` varchar(400) NOT NULL, 
+					`created` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+                    PRIMARY KEY  (`id`),
+					INDEX `code` (`code`)
+                )
+                ";
+		$msg = wire('database')->exec($sql);
+
+        wire('log')->save('message', "otoc module table installed");
+	}
+
+    /*
+    * uninstalls otoc table
+    */ 
+    public function ___uninstall() {
+        
+        // drop table for otoc
+        $sql = "DROP TABLE IF EXISTS `{$this->tableName}`;";
+        $msg = wire('database')->exec($sql);
+
+        wire('log')->save('message', "otoc module table removed");
+    }
+}
