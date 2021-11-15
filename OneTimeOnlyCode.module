@@ -77,6 +77,9 @@ class OneTimeOnlyCode extends WireData implements Module {
 
         $time = time();
 
+        $code = wire("sanitizer")->text($code);
+        $url = wire("sanitizer")->text($url);
+
 		$sql = "
             SELECT url 
             FROM {$this->tableName}
@@ -127,6 +130,8 @@ class OneTimeOnlyCode extends WireData implements Module {
     public function createCodes($url = "/", $count = 1){
 
 		$codes = array();
+
+        $url = wire("sanitizer")->text($url);
 
         // for the number requested create number of codes 
         for ($i = 0; $i < $count; $i++) {
